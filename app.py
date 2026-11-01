@@ -1,4 +1,3 @@
-
 import streamlit as st
 
 from database import (
@@ -27,14 +26,62 @@ st.set_page_config(
 
 
 # ==================================================
-# 2. INITIALIZE DATABASE
+# 2. CUSTOM UI STYLING
+# ==================================================
+
+st.markdown(
+    """
+    <style>
+
+    /* Create Account description */
+    .form-description {
+        font-size: 19px !important;
+        font-weight: 500 !important;
+        line-height: 1.6 !important;
+        margin: 8px 0 18px 0 !important;
+    }
+
+    /* Input labels */
+    .stTextInput label,
+    .stNumberInput label {
+        font-size: 17px !important;
+        font-weight: 600 !important;
+    }
+
+    /* Input fields */
+    .stTextInput input,
+    .stNumberInput input {
+        font-size: 17px !important;
+        min-height: 48px !important;
+        padding: 10px 14px !important;
+    }
+
+    /* Placeholder */
+    .stTextInput input::placeholder {
+        font-size: 16px !important;
+    }
+
+    /* Form button */
+    .stFormSubmitButton button {
+        font-size: 16px !important;
+        min-height: 46px !important;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ==================================================
+# 3. INITIALIZE DATABASE
 # ==================================================
 
 init_db()
 
 
 # ==================================================
-# 3. HELPER FUNCTIONS
+# 4. HELPER FUNCTIONS
 # ==================================================
 
 def format_money(amount):
@@ -47,15 +94,19 @@ def navigate(page):
 
 
 def load_all_transactions(accounts):
+
     transactions = []
 
     for account in accounts:
+
         account_number = account["Account Number"]
 
         account_transactions = get_transactions(account_number)
 
         for transaction in account_transactions:
+
             transaction["Account Number"] = account_number
+
             transaction["Account Holder"] = account["Account Holder"]
 
             transactions.append(transaction)
@@ -69,7 +120,7 @@ def load_all_transactions(accounts):
 
 
 # ==================================================
-# 4. SIDEBAR NAVIGATION
+# 5. SIDEBAR NAVIGATION
 # ==================================================
 
 st.sidebar.markdown(
@@ -83,6 +134,7 @@ st.sidebar.divider()
 
 st.sidebar.subheader("MAIN MENU")
 
+
 navigation = {
     "Dashboard": "🏠 Dashboard",
     "Create Account": "➕ Create Account",
@@ -93,7 +145,9 @@ navigation = {
     "Transaction History": "📊 Transaction History"
 }
 
+
 if "menu" not in st.session_state:
+
     st.session_state.menu = "Dashboard"
 
 
@@ -109,12 +163,14 @@ for page, label in navigation.items():
             else "secondary"
         )
     ):
+
         navigate(page)
 
 
 st.sidebar.divider()
 
 st.sidebar.caption("SECURE DIGITAL BANKING")
+
 st.sidebar.caption("© 2026 JERIN BANK")
 
 
@@ -122,7 +178,7 @@ menu = st.session_state.menu
 
 
 # ==================================================
-# 5. DASHBOARD
+# 6. DASHBOARD
 # ==================================================
 
 if menu == "Dashboard":
@@ -154,7 +210,7 @@ if menu == "Dashboard":
 
     st.caption("JERIN BANK / OVERVIEW")
 
-    st.title("Good Morning! 👋")
+    st.title("WELCOME TO JERIN BANK 👋")
 
     st.write("Welcome to your digital banking dashboard.")
 
@@ -211,18 +267,21 @@ if menu == "Dashboard":
     col1, col2, col3 = st.columns(3)
 
     with col1:
+
         st.metric(
             "Total Accounts",
             total_accounts
         )
 
     with col2:
+
         st.metric(
             "Total Deposits",
             format_money(total_deposits)
         )
 
     with col3:
+
         st.metric(
             "Total Withdrawals",
             format_money(total_withdrawals)
@@ -235,19 +294,27 @@ if menu == "Dashboard":
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
+
         if st.button("➕ Create Account", use_container_width=True):
+
             navigate("Create Account")
 
     with col2:
+
         if st.button("💰 Deposit Money", use_container_width=True):
+
             navigate("Deposit Money")
 
     with col3:
+
         if st.button("💸 Withdraw Money", use_container_width=True):
+
             navigate("Withdraw Money")
 
     with col4:
+
         if st.button("👥 All Accounts", use_container_width=True):
+
             navigate("All Accounts")
 
     # Recent transactions
@@ -263,6 +330,7 @@ if menu == "Dashboard":
         )
 
     else:
+
         st.info("No transactions available yet.")
 
     # Account overview
@@ -278,29 +346,42 @@ if menu == "Dashboard":
                 col1, col2 = st.columns(2)
 
                 with col1:
+
                     st.write("**Account Holder**")
+
                     st.write(account["Account Holder"])
 
                     st.write("**Account Number**")
+
                     st.write(f'#{account["Account Number"]}')
 
                 with col2:
+
                     st.write("**Available Balance**")
-                    st.subheader(format_money(account["Balance"]))
+
+                    st.subheader(
+                        format_money(account["Balance"])
+                    )
 
     else:
+
         st.info("No accounts found. Create your first account.")
 
 
 # ==================================================
-# 6. CREATE ACCOUNT
+# 7. CREATE ACCOUNT
 # ==================================================
 
 elif menu == "Create Account":
 
     st.title("➕ Create New Account")
 
-    st.write("Register a new customer bank account.")
+    st.markdown(
+        '<p class="form-description">'
+        'Register a new customer bank account.'
+        '</p>',
+        unsafe_allow_html=True
+    )
 
     with st.form("create_account_form"):
 
@@ -324,19 +405,22 @@ elif menu == "Create Account":
         if submitted:
 
             try:
+
                 account_number = create_account(name, balance)
 
                 st.success("Account created successfully!")
 
                 st.write("Your Account Number:")
+
                 st.code(str(account_number))
 
             except (ValueError, TypeError) as error:
+
                 st.error(str(error))
 
 
 # ==================================================
-# 7. ACCOUNT DETAILS
+# 8. ACCOUNT DETAILS
 # ==================================================
 
 elif menu == "Account Details":
@@ -352,6 +436,7 @@ elif menu == "Account Details":
     if st.button("Search Account"):
 
         try:
+
             account = get_account(account_number)
 
             st.success("Account found successfully!")
@@ -359,20 +444,28 @@ elif menu == "Account Details":
             col1, col2 = st.columns(2)
 
             with col1:
+
                 st.metric(
                     "Account Holder",
                     account["name"]
                 )
 
             with col2:
+
                 st.metric(
                     "Account Balance",
                     format_money(account["balance"])
                 )
 
-            st.write("**Account Number:**", 1000 + account["id"])
+            st.write(
+                "**Account Number:**",
+                1000 + account["id"]
+            )
 
-            st.write("**Created At:**", account["created_at"])
+            st.write(
+                "**Created At:**",
+                account["created_at"]
+            )
 
             savings_account = SavingsAccount(
                 account["name"],
@@ -387,11 +480,12 @@ elif menu == "Account Details":
             )
 
         except (ValueError, TypeError) as error:
+
             st.error(str(error))
 
 
 # ==================================================
-# 8. DEPOSIT MONEY
+# 9. DEPOSIT MONEY
 # ==================================================
 
 elif menu == "Deposit Money":
@@ -423,6 +517,7 @@ elif menu == "Deposit Money":
         if submitted:
 
             try:
+
                 new_balance = deposit_money(
                     account_number,
                     amount
@@ -436,11 +531,12 @@ elif menu == "Deposit Money":
                 )
 
             except (ValueError, TypeError) as error:
+
                 st.error(str(error))
 
 
 # ==================================================
-# 9. WITHDRAW MONEY
+# 10. WITHDRAW MONEY
 # ==================================================
 
 elif menu == "Withdraw Money":
@@ -472,6 +568,7 @@ elif menu == "Withdraw Money":
         if submitted:
 
             try:
+
                 new_balance = withdraw_money(
                     account_number,
                     amount
@@ -485,11 +582,12 @@ elif menu == "Withdraw Money":
                 )
 
             except (ValueError, TypeError) as error:
+
                 st.error(str(error))
 
 
 # ==================================================
-# 10. ALL ACCOUNTS
+# 11. ALL ACCOUNTS
 # ==================================================
 
 elif menu == "All Accounts":
@@ -509,11 +607,12 @@ elif menu == "All Accounts":
         )
 
     else:
+
         st.info("No accounts registered yet.")
 
 
 # ==================================================
-# 11. TRANSACTION HISTORY
+# 12. TRANSACTION HISTORY
 # ==================================================
 
 elif menu == "Transaction History":
@@ -529,6 +628,7 @@ elif menu == "Transaction History":
     if st.button("View Transactions"):
 
         try:
+
             account = get_account(account_number)
 
             transactions = get_transactions(account_number)
@@ -546,14 +646,16 @@ elif menu == "Transaction History":
                 )
 
             else:
+
                 st.info("No transactions found.")
 
         except (ValueError, TypeError) as error:
+
             st.error(str(error))
 
 
 # ==================================================
-# 12. FOOTER
+# 13. FOOTER
 # ==================================================
 
 st.divider()
@@ -563,5 +665,5 @@ st.caption(
 )
 
 st.caption(
-    "Built with Python, OOP, SQLite and Streamlit"
+    "Built with Python, OOP, PostgreSQL and Streamlit"
 )

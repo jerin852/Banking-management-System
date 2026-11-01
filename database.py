@@ -1,43 +1,82 @@
 
-import sqlite3
+import os
+from contextlib import contextmanager
+
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
+
 from bank_account import SavingsAccount
 
-DB_NAME = "banking.db"
+load_dotenv()
 
 
-# Connect to database
+# ==========================================
+# 1. DATABASE CONNECTION
+# ==========================================
+
+@contextmanager
 def get_connection():
-    return sqlite3.connect(DB_NAME)
+
+    conn = psycopg2.connect(
+        host=os.getenv("DB_HOST", "localhost"),
+        port=os.getenv("DB_PORT", "5432"),
+        database=os.getenv("DB_NAME", "jerin_banking"),
+        user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD")
+    )
+
+    try:
+        yield conn
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
 
 
-# Initialize database tables
+# ==========================================
+# 2. INITIALIZE DATABASE TABLES
+# ==========================================
+
 def init_db():
 
     with get_connection() as conn:
 
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS accounts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                balance REAL NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        with conn.cursor() as cursor:
 
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                account_id INTEGER NOT NULL,
-                transaction_type TEXT NOT NULL,
-                amount REAL NOT NULL,
-                balance_after REAL NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (account_id) REFERENCES accounts(id)
-            )
-        """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS accounts (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    name VARCHAR(150) NOT NULL,
+                    balance NUMERIC(12, 2) NOT NULL
+                        CHECK (balance >= 0),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    account_id BIGINT NOT NULL
+                        REFERENCES accounts(id),
+                    transaction_type VARCHAR(20) NOT NULL,
+                    amount NUMERIC(12, 2) NOT NULL
+                        CHECK (amount > 0),
+                    balance_after NUMERIC(12, 2) NOT NULL
+                        CHECK (balance_after >= 0),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
 
-# Create new account
+# ==========================================
+# 3. CREATE ACCOUNT
+# ==========================================
+
 def create_account(name, balance):
 
     name = name.strip()
@@ -50,23 +89,34 @@ def create_account(name, balance):
 
     with get_connection() as conn:
 
-        cursor = conn.execute(
-            "INSERT INTO accounts (name, balance) VALUES (?, ?)",
-            (name, account.get_balance())
-        )
+        with conn.cursor() as cursor:
 
-        account_id = cursor.lastrowid
+            cursor.execute("""
+                INSERT INTO accounts (name, balance)
+                VALUES (%s, %s)
+                RETURNING id
+            """, (name, account.get_balance()))
 
-        conn.execute("""
-            INSERT INTO transactions
-            (account_id, transaction_type, amount, balance_after)
-            VALUES (?, ?, ?, ?)
-        """, (account_id, "OPENING", balance, balance))
+            account_id = cursor.fetchone()[0]
+
+            cursor.execute("""
+                INSERT INTO transactions
+                (account_id, transaction_type, amount, balance_after)
+                VALUES (%s, %s, %s, %s)
+            """, (
+                account_id,
+                "OPENING",
+                account.get_balance(),
+                account.get_balance()
+            ))
 
     return 1000 + account_id
 
 
-# Get account details
+# ==========================================
+# 4. GET ACCOUNT
+# ==========================================
+
 def get_account(account_number):
 
     try:
@@ -79,24 +129,33 @@ def get_account(account_number):
 
     with get_connection() as conn:
 
-        conn.row_factory = sqlite3.Row
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
 
-        row = conn.execute(
-            "SELECT * FROM accounts WHERE id = ?",
-            (account_id,)
-        ).fetchone()
+            cursor.execute("""
+                SELECT * FROM accounts
+                WHERE id = %s
+            """, (account_id,))
+
+            row = cursor.fetchone()
 
     if row is None:
         raise ValueError("Account not found")
 
-    return dict(row)
+    account = dict(row)
+    account["balance"] = float(account["balance"])
+
+    return account
 
 
-# Deposit money
+# ==========================================
+# 5. DEPOSIT MONEY
+# ==========================================
+
 def deposit_money(account_number, amount):
 
-    account = get_account(account_number)
     amount = float(amount)
+
+    account = get_account(account_number)
 
     bank_account = SavingsAccount(
         account["name"],
@@ -104,97 +163,152 @@ def deposit_money(account_number, amount):
     )
 
     new_balance = bank_account.deposit(amount)
+
     account_id = account["id"]
 
     with get_connection() as conn:
 
-        conn.execute(
-            "UPDATE accounts SET balance = ? WHERE id = ?",
-            (new_balance, account_id)
-        )
+        with conn.cursor() as cursor:
 
-        conn.execute("""
-            INSERT INTO transactions
-            (account_id, transaction_type, amount, balance_after)
-            VALUES (?, ?, ?, ?)
-        """, (account_id, "DEPOSIT", amount, new_balance))
+            # Lock the account row during the update.
+            cursor.execute("""
+                SELECT balance FROM accounts
+                WHERE id = %s
+                FOR UPDATE
+            """, (account_id,))
+
+            row = cursor.fetchone()
+
+            if row is None:
+                raise ValueError("Account not found")
+
+            bank_account = SavingsAccount(
+                account["name"],
+                float(row[0])
+            )
+
+            new_balance = bank_account.deposit(amount)
+
+            cursor.execute("""
+                UPDATE accounts
+                SET balance = %s
+                WHERE id = %s
+            """, (new_balance, account_id))
+
+            cursor.execute("""
+                INSERT INTO transactions
+                (account_id, transaction_type, amount, balance_after)
+                VALUES (%s, %s, %s, %s)
+            """, (account_id, "DEPOSIT", amount, new_balance))
 
     return new_balance
 
 
-# Withdraw money
+# ==========================================
+# 6. WITHDRAW MONEY
+# ==========================================
+
 def withdraw_money(account_number, amount):
 
-    account = get_account(account_number)
     amount = float(amount)
 
-    bank_account = SavingsAccount(
-        account["name"],
-        account["balance"]
-    )
+    account = get_account(account_number)
 
-    new_balance = bank_account.withdraw(amount)
     account_id = account["id"]
 
     with get_connection() as conn:
 
-        conn.execute(
-            "UPDATE accounts SET balance = ? WHERE id = ?",
-            (new_balance, account_id)
-        )
+        with conn.cursor() as cursor:
 
-        conn.execute("""
-            INSERT INTO transactions
-            (account_id, transaction_type, amount, balance_after)
-            VALUES (?, ?, ?, ?)
-        """, (account_id, "WITHDRAWAL", amount, new_balance))
+            cursor.execute("""
+                SELECT balance FROM accounts
+                WHERE id = %s
+                FOR UPDATE
+            """, (account_id,))
+
+            row = cursor.fetchone()
+
+            if row is None:
+                raise ValueError("Account not found")
+
+            bank_account = SavingsAccount(
+                account["name"],
+                float(row[0])
+            )
+
+            new_balance = bank_account.withdraw(amount)
+
+            cursor.execute("""
+                UPDATE accounts
+                SET balance = %s
+                WHERE id = %s
+            """, (new_balance, account_id))
+
+            cursor.execute("""
+                INSERT INTO transactions
+                (account_id, transaction_type, amount, balance_after)
+                VALUES (%s, %s, %s, %s)
+            """, (account_id, "WITHDRAWAL", amount, new_balance))
 
     return new_balance
 
 
-# Display all accounts
+# ==========================================
+# 7. LIST ALL ACCOUNTS
+# ==========================================
+
 def list_accounts():
 
     with get_connection() as conn:
 
-        rows = conn.execute("""
-            SELECT id, name, balance, created_at
-            FROM accounts
-            ORDER BY id DESC
-        """).fetchall()
+        with conn.cursor() as cursor:
+
+            cursor.execute("""
+                SELECT id, name, balance, created_at
+                FROM accounts
+                ORDER BY id DESC
+            """)
+
+            rows = cursor.fetchall()
 
     return [
         {
             "Account Number": 1000 + row[0],
             "Account Holder": row[1],
-            "Balance": row[2],
+            "Balance": float(row[2]),
             "Created At": row[3]
         }
         for row in rows
     ]
 
 
-# Display transaction history
+# ==========================================
+# 8. GET TRANSACTION HISTORY
+# ==========================================
+
 def get_transactions(account_number):
 
     account = get_account(account_number)
-    account_id = account["id"]
 
     with get_connection() as conn:
 
-        rows = conn.execute("""
-            SELECT transaction_type, amount,
-                   balance_after, created_at
-            FROM transactions
-            WHERE account_id = ?
-            ORDER BY id DESC
-        """, (account_id,)).fetchall()
+        with conn.cursor() as cursor:
+
+            cursor.execute("""
+                SELECT transaction_type, amount,
+                       balance_after, created_at
+                FROM transactions
+                WHERE account_id = %s
+                ORDER BY id DESC
+            """, (account["id"],))
+
+            rows = cursor.fetchall()
 
     return [
         {
             "Transaction": row[0],
-            "Amount": row[1],
-            "Balance After": row[2],
+            "Amount": float(row[1]),
+            "Balance After": float(row[2]),
             "Date": row[3]
         }
         for row in rows

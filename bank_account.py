@@ -9,17 +9,20 @@ class BankAccount(ABC):
             raise ValueError("Initial balance cannot be negative")
 
         self.name = name
-        self.__balance = balance
+        self.__balance = round(float(balance), 2)
 
     def deposit(self, amount):
+        amount = float(amount)
 
         if amount <= 0:
             raise ValueError("Deposit amount must be positive")
 
-        self.__balance += amount
-        print("Deposited:", amount)
+        self.__balance = round(self.__balance + amount, 2)
+
+        return self.__balance
 
     def withdraw(self, amount):
+        amount = float(amount)
 
         if amount <= 0:
             raise ValueError("Withdrawal amount must be positive")
@@ -27,12 +30,9 @@ class BankAccount(ABC):
         if amount > self.__balance:
             raise ValueError("Insufficient balance")
 
-        self.__balance -= amount
-        print("Withdrawn:", amount)
+        self.__balance = round(self.__balance - amount, 2)
 
-    def check_balance(self):
-        print("Account Holder:", self.name)
-        print("Current Balance:", self.__balance)
+        return self.__balance
 
     def get_balance(self):
         return self.__balance
@@ -45,16 +45,4 @@ class BankAccount(ABC):
 class SavingsAccount(BankAccount):
 
     def calculate_interest(self):
-        return self.get_balance() * 0.05
-
-
-class CurrentAccount(BankAccount):
-
-    def calculate_interest(self):
-        return self.get_balance() * 0.02
-
-
-class SalaryAccount(BankAccount):
-
-    def calculate_interest(self):
-        return self.get_balance() * 0.08
+        return round(self.get_balance() * 0.05, 2)
